@@ -73,7 +73,7 @@ int main(int argc, const char* argv[])
     struct sockaddr_in serv;
     memset(&serv, 0, sizeof(serv));
     serv.sin_family = AF_INET;
-    serv.sin_port = htons(9876);
+    serv.sin_port = htons(9999);
     evutil_inet_pton(AF_INET, "127.0.0.1", &serv.sin_addr.s_addr);
     bufferevent_socket_connect(bev, (struct sockaddr*)&serv, sizeof(serv));
  
