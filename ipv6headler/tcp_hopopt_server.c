@@ -9,20 +9,19 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#define MAXLINE 1024
-socklen_t control_len;
+#define MAXOPTLEN 1024
 
-int initopt(void *optbuf)
+socklen_t initopt(void *optbuf)
 {
    void *databuf;
-   char *buf = "a";
+   char buf[] = "a";
+   socklen_t tempoffset, optlen;
+   
    socklen_t myoffset = inet6_opt_init(NULL, 0);
    myoffset = inet6_opt_append(NULL, 0, myoffset, 5, 2, 2, &databuf);
-   int tempoffset = inet6_opt_set_val(databuf, 0, buf, 2);
    myoffset = inet6_opt_finish(NULL, 0, myoffset);
    
-   socklen_t optlen = myoffset;
-   databuf = NULL;
+   optlen = myoffset;
    myoffset = inet6_opt_init(optbuf, optlen);
    myoffset = inet6_opt_append(optbuf, optlen, myoffset, 5, 2, 2, &databuf); 
    tempoffset = inet6_opt_set_val(databuf, 0, buf, 2);
@@ -31,63 +30,18 @@ int initopt(void *optbuf)
    return myoffset;
 }
 
-void *init_msg(struct msghdr *mymsg, struct sockaddr_in6 *cliaddr)
-{
-   void *optbuf;
-   optbuf = malloc(1024);
-   memset(optbuf, 0, 1024);
-   int optlen = initopt(optbuf);
-   struct iovec *iov;
-   //cmsghdar
-   struct cmsghdr *mycmsg;
-   char *control = malloc(CMSG_SPACE(optlen));
-   memset(control, 0, CMSG_SPACE(optlen));
-   mymsg->msg_control = control;
-   mymsg->msg_controllen = sizeof(control);
-   
-   //mycmsg = CMSG_FIRSTHDR(mymsg);
-   mycmsg = (struct cmsghdr *)mymsg->msg_control;
-   mycmsg->cmsg_len = CMSG_LEN(optlen);
-   control_len = mycmsg->cmsg_len;
-   mycmsg->cmsg_level = IPPROTO_IPV6;
-   mycmsg->cmsg_type = IPV6_HOPOPTS;
-   //control mag data
-   unsigned char *control_data = CMSG_DATA(mycmsg);
-   memcpy(control_data, optbuf, optlen);
-   //free(optbuf);
-   //msg_name is servaddr
-   mymsg->msg_name = cliaddr;
-   mymsg->msg_namelen = sizeof(struct sockaddr_in6);
-   //iov
-   iov = malloc(sizeof(struct iovec));
-   iov->iov_base = "TEST";
-   iov->iov_len = sizeof("TEST");
-   mymsg->msg_iov = iov;
-   mymsg->msg_iovlen = 1;
-   return optbuf;
-}
-
-void free_msghdr(struct msghdr *mymsg)
-{
-   free(mymsg->msg_iov);
-   free(mymsg->msg_control);
-   free(mymsg);	
-}
-
 int main(int argc, char **argv)
 {
    int listenfd, connfd;
-   socklen_t len;
-   char buff[MAXLINE];
+   socklen_t len, optlen;
    struct sockaddr_in6 servaddr, cliaddr;
-
-   struct msghdr *mymsg;
-
+   void *optbuf;
+   
    listenfd = socket(AF_INET6, SOCK_STREAM, 0);
    bzero(&servaddr, sizeof(servaddr));
    servaddr.sin6_family = AF_INET6;
-   servaddr.sin6_addr   = in6addr_any;
-   servaddr.sin6_port   = htons(9999);
+   servaddr.sin6_addr = in6addr_any;
+   servaddr.sin6_port = htons(9999);
 
    bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 
@@ -95,16 +49,16 @@ int main(int argc, char **argv)
    setsockopt(connfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
    listen(listenfd, 1);
 
-   mymsg = malloc(sizeof(struct msghdr));
-	memset(mymsg, 0, sizeof(struct msghdr));
-	void *optbuf = init_msg(mymsg, (struct sockaddr_in6 *)&cliaddr);
-   for ( ; ; ) 
+   optbuf = malloc(MAXOPTLEN);
+   memset(optbuf, 0, MAXOPTLEN);
+   optlen = initopt(optbuf);
+
+   while(1)
    {
       len = sizeof(cliaddr);
       connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &len);
 
-	   if((setsockopt(connfd, IPPROTO_IPV6, IPV6_HOPOPTS, 
-	  				(void *)optbuf, 8)) == -1)
+	   if((setsockopt(connfd, IPPROTO_IPV6, IPV6_HOPOPTS, optbuf, 8)) == -1)
 	   {
 	      perror("SETSOCKOPT");
 		   exit(1);	  
@@ -113,5 +67,5 @@ int main(int argc, char **argv)
 	   send(connfd, "TEST", 5, 0);
       close(connfd);
    }
-   free_msghdr(mymsg);
+   free(optbuf);
 }
