@@ -10,22 +10,25 @@
 #include <unistd.h>
 
 #define MAXOPTLEN 1024
+char buf[] = "a";
 
 socklen_t initopt(void *optbuf)
 {
    void *databuf;
-   char buf[] = "a";
+   
    socklen_t tempoffset, optlen;
-   
-   socklen_t myoffset = inet6_opt_init(NULL, 0);
-   myoffset = inet6_opt_append(NULL, 0, myoffset, 5, 2, 2, &databuf);
-   myoffset = inet6_opt_finish(NULL, 0, myoffset);
-   
+
+   //first traversal for computing expected length of hop-by-hop option
+   socklen_t myoffset = inet6_opt_init(NULL, 0);//2
+   myoffset = inet6_opt_append(NULL, 0, myoffset, 5, 2, 2, &databuf);//6
+   myoffset = inet6_opt_finish(NULL, 0, myoffset);//8
+
+   //second traversal for constructing
    optlen = myoffset;
-   myoffset = inet6_opt_init(optbuf, optlen);
-   myoffset = inet6_opt_append(optbuf, optlen, myoffset, 5, 2, 2, &databuf); 
-   tempoffset = inet6_opt_set_val(databuf, 0, buf, 2);
-   myoffset = inet6_opt_finish(optbuf, optlen, myoffset);
+   myoffset = inet6_opt_init(optbuf, optlen);//2
+   myoffset = inet6_opt_append(optbuf, optlen, myoffset, 5, 2, 2, &databuf);//6
+   tempoffset = inet6_opt_set_val(databuf, 0, buf, 2);//6
+   myoffset = inet6_opt_finish(optbuf, optlen, myoffset);//8
    
    return myoffset;
 }
@@ -46,11 +49,12 @@ int main(int argc, char **argv)
    bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 
    const int on = 1;
-   setsockopt(connfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+   setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
    listen(listenfd, 1);
 
    optbuf = malloc(MAXOPTLEN);
    memset(optbuf, 0, MAXOPTLEN);
+   //construct hop-by-hop option
    optlen = initopt(optbuf);
 
    while(1)
@@ -58,7 +62,8 @@ int main(int argc, char **argv)
       len = sizeof(cliaddr);
       connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &len);
 
-	   if((setsockopt(connfd, IPPROTO_IPV6, IPV6_HOPOPTS, optbuf, 8)) == -1)
+      //set ipv6 hop-by-hop extension headler in all packet sent from connfd
+	   if((setsockopt(connfd, IPPROTO_IPV6, IPV6_HOPOPTS, optbuf, optlen)) == -1)
 	   {
 	      perror("SETSOCKOPT");
 		   exit(1);	  
