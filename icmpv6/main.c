@@ -1,7 +1,10 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
+#include <netinet/if_ether.h>
+#include <net/if.h>
 #include <errno.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -11,44 +14,45 @@
 #include "sock_basis.h"
 #include "icmpv6_basis.h"
 
+//the interface index
+int ifindex;
+//the iv6 address of interface
+struct in6_addr ifaddr;
+//the mac of interface
+struct ether_addr macaddr;
+
 int check_arg(int argc, char **argv)
 {
-   int scope_id;
-   struct addrinfo *res_ai, *hints;
-   struct sockaddr_in6 *loaddr;
-   if(argc != 3) return 0;
+   if(argc != 2) return 0;
    else
    {
-      scope_id = atoi(argv[2]);
-      if(scope_id == 0) return 0;
-
-      res_ai = (struct addrinfo *)malloc(sizeof(struct addrinfo));
-      hints = (struct addrinfo *)malloc(sizeof(struct addrinfo));
-      loaddr = (struct sockaddr_in6 *)malloc(sizeof(struct sockaddr_in6));
-      memset(hints, 0, sizeof(struct addrinfo));
-      memset(res_ai, 0, sizeof(struct addrinfo));
-      memset(loaddr, 0, sizeof(struct sockaddr_in6));
-      
-      hints->ai_family = AF_INET6;
-      if((getaddrinfo(argv[1], "0", hints, &res_ai)) != 0) return 0;
-      else return 1;
+      ifindex = if_nametoindex(argv[1]);
+      if(ifindex == 0) return 0;
+      memset(&ifaddr, 0, sizeof(struct in6_addr));
+      int len = sizeof(struct in6_addr);
+      if(addr_fromname(AF_INET6, argv[1], &ifaddr, &len) == 0) return 0;
+      return mac_fromname(argv[1], &macaddr);
    }
 }
 
-int main(int argc, char **argv)//argv[1] is the ipv6 address, argv[2] is the scope_id
+int main(int argc, char **argv)
 {
-   
    if(check_arg(argc, argv) == 0)
    {
-      printf("Please input a ipv6 address and interface id!\n");
+      printf("Please input a interface name!\n");
       exit(1);
    }
    int sockfd = init_sock(AF_INET6, IPPROTO_ICMPV6, NULL);
-
-   if(group_join(AF_INET6, sockfd, NULL, 0) == 0)
+   if(sockfd == -1)
    {
-      printf("Join group error!\n");
-      exit(1);      
+      perror("In init_sock()");
+      exit(1);
+   }
+   
+   if(join_groups(AF_INET6, sockfd, NULL, 0) == 0)
+   {
+      perror("In join_groups()");
+      exit(1);
    }
 
    char buf[50];
@@ -67,7 +71,13 @@ int main(int argc, char **argv)//argv[1] is the ipv6 address, argv[2] is the sco
       {
          int be = 2;
          while(buf[be] == ' ') ++be;
-         send_ns(sockfd, buf + be);
+         //fe80::6f53:bf9a:62de:e195
+         //fe80::8ccb:4b57:7e4e:bc95
+         if(send_ns(sockfd, buf + be) <= 0) perror("Error in send NS");
+         continue;
       }
+
+      if(memcmp(buf, "na", 2) == 0)
+         recv_ns(sockfd);
    }
 }
