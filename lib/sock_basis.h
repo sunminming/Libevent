@@ -58,10 +58,4 @@ return 1 if success, or 0;
 */
 int to_solicitation_node_groupaddr(const char *tar, struct in6_addr *res);
 
-/*
-Function free_allai is used to free the memory of struct addrinfo
-struct addrinfo *res: the point to memory of struct addrinfo
-*/
-void free_allai(struct addrinfo *res);
-
 #endif

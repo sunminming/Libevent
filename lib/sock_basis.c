@@ -31,19 +31,6 @@ extern int ifindex;
 extern struct in6_addr ifaddr;
 extern struct ether_addr macaddr;
 
-void free_allai(struct addrinfo *res)
-{
-   struct addrinfo *next;
-   while(res)
-   {
-      if(res->ai_canonname) free(res->ai_canonname);
-      if(res->ai_addr) free(res->ai_addr);
-      next = res->ai_next;
-      free(res);
-      res = next;
-   }
-}
-
 int mac_fromname(const char *name, struct ether_addr *res)
 {
    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -91,6 +78,7 @@ int init_sock(const int family, const int protocol, void *parameter)
 {
    int sockfd;
    int ttl = 255;
+   __u_int loop_opt = 0;
    switch (protocol)
    {
    case IPPROTO_ICMPV6:
@@ -100,8 +88,9 @@ int init_sock(const int family, const int protocol, void *parameter)
    default:
       break;
    }
-   
-   return setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &ttl, sizeof(int));
+   if(setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &ttl, sizeof(int)) != 0) return -1;
+   if(setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &loop_opt, sizeof(__u_int)) != 0) return -1;
+   return sockfd;
 }
 
 int join_agroup(const int sockfd, const struct in6_addr *addr)
