@@ -60,7 +60,11 @@ int addr_fromname(const int family, const char *name, void *res, int *len)
       if (getifaddrs(&ifaddr) == -1) return 0;
       while(ifaddr != NULL)
       {
-         if(ifaddr->ifa_addr == NULL) continue;
+         if(ifaddr->ifa_addr == NULL)
+         {
+            ifaddr = ifaddr->ifa_next;
+            continue;
+         }
          if((memcmp(ifaddr->ifa_name, name, strlen(name)) == 0) && (ifaddr->ifa_addr->sa_family == AF_INET6))
          {
             struct sockaddr_in6 *temp = (struct sockaddr_in6 *)ifaddr->ifa_addr;

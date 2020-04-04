@@ -11,6 +11,7 @@
 #define MAX_MSGLEN 1024
 #define MAX_NSLEN 10
 
+uint16_t echo_seq = 1;
 extern int ifindex;
 extern int naflag;
 extern struct in6_addr allnodes_link;
@@ -57,7 +58,7 @@ void delete_nsnode(struct recvns_data *ns_head)
    return;
 }
 
-int mynshdr_p(const char *tar, char *res)
+int nshdr_create(const char *tar, char *res)
 {
    //basic ns header
    struct nd_neighbor_solicit *nshdr = (struct nd_neighbor_solicit *)res;
@@ -92,7 +93,7 @@ ssize_t send_ns(int sockfd, char *tar)
    char *nsdata = (char *)malloc(nslen);
    memset(nsdata, 0, nslen);
 
-   if(mynshdr_p(tar, nsdata) != 1)
+   if(nshdr_create(tar, nsdata) != 1)
    {
       free(nsdata);
       return 0;
@@ -159,6 +160,7 @@ void *recv_ns(void *arg)
       memset(ns_sender, 0, sizeof(struct sockaddr_in6));
       ssize_t nslen = recvfrom(sockfd, nsbuf, MAX_MSGLEN, 0, (struct sockaddr *)ns_sender, &addrlen);
       if(nslen == -1) perror("Recvfrom");
+      //else printf("Recv a NS;\n");
       if(record_ns(nsbuf, nslen, ns_head, &(ns_sender->sin6_addr)) == 0) perror("Process NS packet");
       else 
       {
@@ -171,12 +173,18 @@ void *recv_ns(void *arg)
    return &res;
 }
 
-struct recvns_data * listen_ns(const int sockfd, pthread_t *tid)
+struct recvns_data * listen_ns(pthread_t *tid)
 {
+   int sockfd = init_sock(AF_INET6, IPPROTO_ICMPV6, NULL);
+   if(sockfd == -1)
+   {
+      perror("In init_sock()");
+      return NULL;
+   }
    //pass icmpv6 ns message
    struct icmp6_filter *nafilter = (struct icmp6_filter *)malloc(sizeof(struct icmp6_filter));
    socklen_t filterlen = sizeof(struct icmp6_filter);
-   getsockopt(sockfd, IPPROTO_ICMPV6, ICMP6_FILTER, nafilter, &filterlen);
+   ICMP6_FILTER_SETBLOCKALL(nafilter);
    ICMP6_FILTER_SETPASS(ND_NEIGHBOR_SOLICIT, nafilter);
    setsockopt(sockfd, IPPROTO_ICMPV6, ICMP6_FILTER, nafilter, sizeof(struct icmp6_filter));
    free(nafilter);
@@ -216,8 +224,16 @@ ssize_t send_na(const int sockfd, struct in6_addr *dest, char *nsbuf, const ssiz
 {
    char *nabuf = nsbuf;
    struct nd_neighbor_advert *nahdr = (struct nd_neighbor_advert *)nabuf;
-   nahdr->nd_na_hdr.icmp6_code = ND_NEIGHBOR_ADVERT;
-   nahdr->nd_na_flags_reserved = ND_NA_FLAG_ROUTER | ND_NA_FLAG_SOLICITED | ND_NA_FLAG_OVERRIDE;
+   if(memcmp(&(nahdr->nd_na_target), &ifaddr, sizeof(struct in6_addr)) != 0) return nslen;
+
+   nahdr->nd_na_hdr.icmp6_type = ND_NEIGHBOR_ADVERT;
+   nahdr->nd_na_flags_reserved = ND_NA_FLAG_SOLICITED;
+   
+   struct nd_opt_hdr *opthdr = (struct nd_opt_hdr *)(nabuf + sizeof(struct nd_neighbor_advert));
+   opthdr->nd_opt_type = ND_OPT_TARGET_LINKADDR;
+
+   char *optdata = nabuf + sizeof(struct nd_neighbor_advert) + sizeof(struct nd_opt_hdr);
+   memcpy(optdata, &macaddr, sizeof(struct ether_addr));
 
    struct sockaddr_in6 nadest;
    nadest.sin6_scope_id = ifindex;
@@ -225,6 +241,49 @@ ssize_t send_na(const int sockfd, struct in6_addr *dest, char *nsbuf, const ssiz
    nadest.sin6_port = 0;
    nadest.sin6_family = AF_INET6;
    nadest.sin6_addr = *dest;
+   
+   ssize_t len = sendto(sockfd, nabuf, nslen, 0, (const struct sockaddr *)&nadest, sizeof(struct sockaddr_in6));
+   //printf("Send a NA with %d bytes\n", len);
+   return len;
+}
 
-   return sendto(sockfd, nabuf, nslen, 0, (const struct sockaddr *)&nadest, sizeof(struct sockaddr_in6));
+void reqdataset(char *reqdata)
+{
+   return;
+}
+
+void reqhdr_create(struct in6_addr *dest, struct icmp6_hdr *reqhdr)
+{
+   reqhdr->icmp6_code = 0;
+   reqhdr->icmp6_type = ICMP6_ECHO_REQUEST;
+   memcpy(&(reqhdr->icmp6_id), &macaddr, 16);
+   reqhdr->icmp6_seq = htons(echo_seq++);
+   reqdataset((char *)(reqhdr + 1));
+   return;
+}
+
+ssize_t ping(const int sockfd, const char *dest)
+{
+   struct sockaddr_in6 destaddr;
+   ssize_t res = 0;
+   ssize_t single_res = 0;
+   int cnt = 0;
+   if(inet_pton(AF_INET6, dest, (void *)&(destaddr.sin6_addr)) != 1) return 0;
+   destaddr.sin6_family = AF_INET6;
+   destaddr.sin6_flowinfo = 0;
+   destaddr.sin6_port = 0;
+   destaddr.sin6_scope_id = ifindex;
+
+   ssize_t reqlen = sizeof(struct icmp6_hdr) + 56 * sizeof(uint8_t);
+   char reqhdr[reqlen];
+   memset(&reqhdr, 0, sizeof(struct icmp6_hdr));
+   reqhdr_create(&(destaddr.sin6_addr), (struct icmp6_hdr *)reqhdr);
+   
+   while(cnt++ < 5)
+   {
+      single_res += sendto(sockfd, reqhdr, reqlen, 0, (struct sockaddr *)&destaddr, sizeof(struct sockaddr_in6));
+      res += single_res;
+      printf("Send a Echo Request with %ld bytes\n", single_res);
+   }
+   printf("Send %d requests in total with %ld bytes", cnt, res);
 }

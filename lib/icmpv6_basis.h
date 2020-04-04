@@ -53,13 +53,13 @@ struct recvns_data *ns_head: the point of struct recvns_data;
 void delete_nsnode(struct recvns_data *ns_head);
 
 /*
-Function mynshdr_p is used to construct a neighbor solicitation header with a string
+Function nshdr_create is used to construct a neighbor solicitation header with a string
 char *tar: the target ipv6 address in this NS;
 struct nd_neighbor_solicit *res: the NS packet result;
 return 1 if success, or 0;
 */
 
-int mynshdr_p(const char *tar, char *res);
+int nshdr_create(const char *tar, char *res);
 
 /*
 Function send_ns is used to send a neighbor solicitation packet for solicit a neighbor mac
@@ -91,7 +91,7 @@ int sockfd: the fd;
 int flag: a flag to indicate whether send na;
 return a point of struct recvns_data;
 */
-struct recvns_data *listen_ns(const int sockfd, pthread_t *tid);
+struct recvns_data *listen_ns(pthread_t *tid);
 
 /*
 Function print_ns is used to print the NS link
@@ -105,4 +105,24 @@ struct in6_addr *dest: a point of struct in6_addr to indicate the NS sender, i.e
 return the length of NA packet sent;
 */
 ssize_t send_na(const int sockfd, struct in6_addr *dest, char *nsbuf, const ssize_t nslen);
+
+/*
+Function reqhdr_create is used to construct a echo request header with target address
+struct in6_addr *dest: the dest ipv6 address in this NS;
+struct icmp6_hdr reqhdr: the returned header;
+*/
+void reqhdr_create(struct in6_addr *dest, struct icmp6_hdr *reqhdr);
+
+/*
+Function reqdataset is used to construct the data field of echo request header
+char *reqdata: a point to the data field of echo request header;
+*/
+void reqdataset(char *reqdata);
+/*
+Function ping is used to send a echo request to dest host
+int sockfd: the fd;
+char *tar: the dest ipv6 address in this NS;
+return the length of NA packet sent;
+*/
+ssize_t ping(const int sockfd, const char *dest);
 #endif

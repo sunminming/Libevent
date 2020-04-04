@@ -83,19 +83,18 @@ int main(int argc, char **argv)
 
    //check option parameters
    struct recvns_data *nsdata;
-   pthread_t tid;
-   if(argc > 2)
-   {
-      //a single fd?
-      if(opt_check(argc, argv, "offNA") == 0) naflag = 0;//listen but do not send na
-      else naflag = 1;
-   }
+   pthread_t nslisten_tid;
 
-   nsdata = listen_ns(sockfd, &tid);
+   //a single fd?
+   if(opt_check(argc, argv, "offNA") == 0) naflag = 1;//listen but do not send na
+   else naflag = 0;
+
+   nsdata = listen_ns(&nslisten_tid);
 
    //main loop
    char buf[50];
    ssize_t len;
+   printf("Loading Completed\n");
    while(1)
    {
       memset(buf, '\0', 50);
@@ -105,15 +104,27 @@ int main(int argc, char **argv)
          exit(1);
       }
 
-      buf[len - 1] = '\0'; 
+      buf[len - 1] = '\0';
+      --len; 
+
       if(memcmp(buf, "ns", 2) == 0)
       {
          int be = 2;
          while(be < len && buf[be] == ' ') ++be;
          //fe80::6f53:bf9a:62de:e195
          //fe80::8ccb:4b57:7e4e:bc95
-         if(buf[be] == '\n') print_ns(nsdata);
+         //fe80::dea1:27f4:19b3:96ab
+         if(be == len) print_ns(nsdata);
          else if(send_ns(sockfd, buf + be) <= 0) perror("Error in send NS");
+         continue;
+      }
+
+      if(memcmp(buf, "ping", 4) == 0)
+      {
+         int be = 4;
+         while(be < len && buf[be] == ' ') ++be;
+         if(be == len) printf("Please input dest ipv6 address\n");
+         else if(ping(sockfd, buf + be) <= 0) perror("Error in send echo request");
          continue;
       }
    }
