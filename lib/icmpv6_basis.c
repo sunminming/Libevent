@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <time.h>
 #include "sock_basis.h"
 #include "icmpv6_basis.h"
 
@@ -262,12 +263,41 @@ void reqhdr_create(struct in6_addr *dest, struct icmp6_hdr *reqhdr)
    return;
 }
 
+void *listen_rep(void *arg)
+{
+   struct arg_ping *larg = (struct arg_ping *)arg;
+   int sockfd = larg->sockfd;
+   struct in6_addr dest = *(larg->dest);
+   int res_cnt = 0;
+   int cnt = 0;
+   
+   //buffer for received data
+   char *repbuf = (char *)malloc(MAX_MSGLEN);
+   //the srouce address
+   struct sockaddr_in6 *rep_sender = (struct sockaddr_in6 *)malloc(sizeof(struct sockaddr_in6));
+   socklen_t addrlen = sizeof(struct sockaddr_in6);
+
+   while(cnt++ < 5)
+   {
+      memset(repbuf, '\0', MAX_MSGLEN);
+      memset(rep_sender, 0, sizeof(struct sockaddr_in6));
+      ssize_t replen = recvfrom(sockfd, repbuf, MAX_MSGLEN, 0, (struct sockaddr *)rep_sender, &addrlen);
+      if(replen < 0) continue;
+      if(memcmp(&(rep_sender->sin6_addr), &dest, sizeof(struct in6_addr)) == 0) ++res_cnt;
+      else --cnt;
+   }
+   free(rep_sender);
+   free(repbuf);
+   pthread_exit((void *)res_cnt);
+}
+
 ssize_t ping(const int sockfd, const char *dest)
 {
    struct sockaddr_in6 destaddr;
    ssize_t res = 0;
    ssize_t single_res = 0;
    int cnt = 0;
+   void *tres;
    if(inet_pton(AF_INET6, dest, (void *)&(destaddr.sin6_addr)) != 1) return 0;
    destaddr.sin6_family = AF_INET6;
    destaddr.sin6_flowinfo = 0;
@@ -279,11 +309,35 @@ ssize_t ping(const int sockfd, const char *dest)
    memset(&reqhdr, 0, sizeof(struct icmp6_hdr));
    reqhdr_create(&(destaddr.sin6_addr), (struct icmp6_hdr *)reqhdr);
    
-   while(cnt++ < 5)
+   pthread_t ping_tid;
+   struct arg_ping arg;
+   arg.sockfd = init_sock(AF_INET6, IPPROTO_ICMPV6, NULL);
+   if(arg.sockfd == -1) return 0;
+   arg.dest = &(destaddr.sin6_addr);
+   //pass icmpv6 echo reply message
+   struct icmp6_filter *nafilter = (struct icmp6_filter *)malloc(sizeof(struct icmp6_filter));
+   socklen_t filterlen = sizeof(struct icmp6_filter);
+   if(getsockopt(arg.sockfd, IPPROTO_ICMPV6, ICMP6_FILTER, nafilter, &filterlen) != 0) return 0;
+   ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, nafilter);
+   if(setsockopt(arg.sockfd, IPPROTO_ICMPV6, ICMP6_FILTER, nafilter, sizeof(struct icmp6_filter)) != 0) return 0;
+   free(nafilter);
+   //set time
+   struct timeval tv;
+   tv.tv_sec = 1;
+   tv.tv_usec = 0;
+   if(setsockopt(arg.sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval)) != 0) return 0;
+
+   if(pthread_create(&ping_tid, NULL, listen_rep, (void *)&arg) != 0) return 0;
+   while(cnt < 5)
    {
-      single_res += sendto(sockfd, reqhdr, reqlen, 0, (struct sockaddr *)&destaddr, sizeof(struct sockaddr_in6));
+      single_res = sendto(sockfd, reqhdr, reqlen, 0, (struct sockaddr *)&destaddr, sizeof(struct sockaddr_in6));
       res += single_res;
       printf("Send a Echo Request with %ld bytes\n", single_res);
+      ++cnt;
    }
-   printf("Send %d requests in total with %ld bytes", cnt, res);
+   printf("Send %d Echo Requests in total with %ld bytes\n", cnt, res);
+   pthread_join(ping_tid, &tres);
+   printf("Recv %d Echo Replies, Success rate %f%\n", (int)tres, 100* (int)tres/(float)5);
+   close(arg.sockfd);
+   return 1;
 }

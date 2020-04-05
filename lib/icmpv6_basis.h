@@ -28,6 +28,13 @@ struct arg_recv_ns
    int sockfd;
 };
 
+//parament of function
+struct arg_ping
+{
+   struct in6_addr *dest;
+   int sockfd;
+};
+
 /*
 Function init_recvnslink is init a head of recvns_data link
 return a point of struct recvns_data;
